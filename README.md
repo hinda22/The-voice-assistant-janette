@@ -10,9 +10,9 @@ The Voice Assistant Project combines Artificial Intelligence, Voice Recognition,
 
 The assistant can communicate with users through speech, perform online searches, provide weather information, play media, monitor environmental conditions, and automatically water plants when needed.
 
-## ✨ Features
+## Features
 
-### 🎤 Voice Recognition
+###  Voice Recognition
 
 * Converts spoken commands into text.
 * Supports French language recognition.
