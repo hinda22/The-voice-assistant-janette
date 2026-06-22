@@ -1,0 +1,266 @@
+import customtkinter as ctk  # Interface utilisateur
+import speech_recognition as sr  # Reconnaissance vocale
+import pyttsx3  # Synthèse vocale
+from youtube_search import YoutubeSearch  # Recherche sur YouTube
+from googlesearch import search  # Recherche sur Google
+import webbrowser  # Ouverture de liens web
+import requests
+from bs4 import BeautifulSoup  # Extraction de contenu web
+from datetime import datetime  # Gestion de l'heure
+from PIL import Image , ImageTk
+import os
+import google.generativeai as genai
+import  re
+import socket
+# Initialisation de la reconnaissance vocale et de la synthèse vocale
+recognizer = sr.Recognizer()
+engine = pyttsx3.init()
+
+
+def send_command_to_esp8266(command):
+    esp_ip = "192.168.154.57"  # Remplacez par l'adresse IP du ESP8266
+    port = 80
+    try:
+        # Connexion au ESP8266
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((esp_ip, port))
+            s.sendall(command.encode())  # Envoi de la commande
+            response = s.recv(1024).decode()  # Réception de la réponse
+            return response
+    except Exception as e:
+        print(f"Erreur : {e}")
+        return None
+def create_response(question):
+  genai.configure(api_key="AIzaSyCJRd4Wv2PHkVK5DFrj9FjehR4j8Ezv2eY")
+
+  # Créer le modèle
+  generation_config = {
+    "temperature": 0.7,  # Ajuster la créativité
+    "max_output_tokens": 1024,
+  }
+
+  model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    generation_config=generation_config,
+  )
+
+  chat_session = model.start_chat()
+  response = chat_session.send_message(question)
+  return response.text
+
+# Configuration de la synthèse vocale
+def speak(text):
+    """Convertit le texte en parole."""
+    engine.say(text)
+    engine.runAndWait()
+    output_textbox.insert("end", f"Assistant: {text}\n")  # Ajout de texte
+    output_textbox.see("end")  # Scroller automatiquement à la fin
+    app.update()  # Forcer la mise à jour de l'interface graphique
+
+
+# Fonction pour écouter une commande
+def recognize_speech():
+    """Écoute la commande vocale et retourne le texte."""
+    with sr.Microphone() as source:
+        speak("Je suis madame Jannet, votre assistante.")
+        recognizer.adjust_for_ambient_noise(source)  # Réduction des bruits
+        speak("Je suis prête à vous écouter.")
+        try:
+            audio = recognizer.listen(source)
+            command = recognizer.recognize_google(audio, language="fr-FR")
+            speak(f"Vous avez dit : {command}")
+            return command.lower()
+        except sr.UnknownValueError:
+            speak("Je n'ai pas compris. Essayez de répéter votre commande.")
+            return ""
+        except sr.RequestError:
+            speak("Je n'ai pas accès à Internet. Vérifiez votre connexion.")
+            return ""
+
+# Fonction pour obtenir l'heure actuelle
+def get_current_time():
+    """Retourne et annonce l'heure actuelle."""
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+    speak(f"Il est actuellement {current_time}.")
+    return current_time
+
+# Fonction pour obtenir la météo
+def get_weather(city):
+    """Retourne et annonce la météo pour une ville donnée."""
+    API_KEY = "52b73e8f9f7f081cd795e22d85b1e469"  # Remplacez par votre clé API
+    BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
+    try:
+        # Requête à l'API météo
+        params = {"q": city, "appid": API_KEY, "units": "metric", "lang": "fr"}
+        response = requests.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        weather_data = response.json()
+
+        # Extraction des données météo
+        description = weather_data["weather"][0]["description"]
+        temperature = weather_data["main"]["temp"]
+        city_name = weather_data["name"]
+        weather_report = f"À {city_name}, il fait actuellement {temperature} degrés avec {description}."
+        speak(weather_report)
+        return weather_report
+    except requests.exceptions.RequestException as e:
+        speak("Impossible de récupérer les informations météo. Vérifiez votre connexion.")
+        return None
+    except KeyError:
+        speak("Je n'ai pas pu trouver les informations pour cette ville.")
+        return None
+
+# Fonction pour effectuer une recherche Google
+def google_search(query):
+    """Recherche sur Google et lit le contenu du premier résultat pertinent."""
+    try:
+        results = list(search(query, num_results=1))
+        if results:
+            url = results[0]
+            speak(f"Voici ce que j'ai trouvé pour {query}.")
+            speak(f"consulter la Premier résultat : {url}")
+
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            paragraphs = soup.find_all("p")
+            readable_paragraphs = [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
+
+            if readable_paragraphs:
+                first_paragraph = readable_paragraphs[0]
+                print(f"Premier paragraphe : {first_paragraph}")
+                speak(first_paragraph)
+            else:
+                speak("Je n'ai pas trouvé de contenu lisible sur cette page.")
+        else:
+            speak("Aucun résultat trouvé.")
+    except requests.exceptions.RequestException as e:
+        speak(f"Erreur réseau : {e}")
+    except Exception as e:
+        speak(f"Une erreur est survenue : {e}")
+
+# Fonction pour exécuter les commandes vocales
+def execute_command():
+    """Analyse et exécute la commande vocale."""
+    command = recognize_speech()
+    if not command:
+        return
+
+    if "joue" in command:
+        song_name = command.replace("joue", "").strip()
+        speak(f"Lecture de {song_name} sur YouTube.")
+        results = YoutubeSearch(song_name, max_results=1).to_dict()
+        if results:
+            video_url = f"https://www.youtube.com/watch?v={results[0]['id']}"
+            speak(f"Lecture de {results[0]['title']}.")
+            webbrowser.open(video_url)
+        else:
+            speak("Aucune vidéo trouvée.")
+    elif "quelle heure" in command:
+        get_current_time()
+    elif "météo" in command:
+        city = command.replace("météo", "").strip()
+        if city:
+            get_weather(city)
+        else:
+            speak("Veuillez spécifier une ville pour la météo.")
+    elif "ouvre youtube" in command:
+        speak("Ouverture de YouTube.")
+        webbrowser.open("https://www.youtube.com")
+    elif "ouvre facebook" in command:
+        speak("Ouverture de Facebook.")
+        webbrowser.open("https://www.facebook.com/")
+    elif "recherche" in command:
+        search_query = command.replace("recherche", "").strip()
+        speak(f"Recherche de {search_query} sur Google.")
+        google_search(search_query)
+    elif "explique" in command or "dis-moi" in command:
+        question = command.replace("explique", "").replace("dis-moi", "").strip()
+        if question:
+            speak(f"Je vais réfléchir à votre question : {question}")
+            try:
+
+                    answer = create_response(question)
+                    if answer:
+                        answer=re.sub(r'\*\*', '', answer)
+                        speak(answer)
+                        print(answer)
+                    else:
+                        speak("Je n'ai pas pu générer une réponse.")
+            except Exception as e:
+                    print(f"Erreur lors de la génération de la réponse : {e}")
+
+                    speak("Désolé, une erreur est survenue.")
+    elif "lire humidité" in command:
+        # Connect to Arduino to read humidity
+        try:
+            humidity = send_command_to_esp8266("READ_SOIL_HUMIDITY")
+            speak(f"L'humidité actuelle est de {humidity} %")
+        except Exception as e:
+            speak("Impossible de communiquer avec Arduino. Vérifiez la connexion.")
+            print(f"Erreur : {e}")
+    elif "arrêter relais" in command or "stop pompe" in command:
+            try:
+                response = send_command_to_esp8266("PUMP_OFF")
+                speak(response)
+            except Exception as e:
+                speak("Impossible de communiquer avec Arduino. Vérifiez la connexion.")
+                print(f"Erreur : {e}")
+    elif "arrosage" in command:
+        # Connect to Arduino to activate the pump
+        try:
+            response = send_command_to_esp8266("PUMP_ON")
+
+            speak(response)
+
+
+        except Exception as e:
+            speak("Impossible de communiquer avec Arduino. Vérifiez la connexion.")
+            print(f"Erreur : {e}")
+
+
+    elif "ferme" in command:
+            speak("Fermeture de l'application.")
+            app.quit()
+    else:
+        speak("Commande non reconnue. Essayez autre chose.")
+
+# Interface utilisateur avec CustomTkinter
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("green")
+
+app = ctk.CTk()
+app.title("Assistant Vocal by Hind, Nour et Balkiss")
+app.geometry("1000x600")
+# Label d'instructions
+#ajouter l'imade de l'arriére plan
+im=ImageTk.PhotoImage(Image.open("AdobeStock_159698982-scaled.jpg"))
+i=ctk.CTkLabel(master=app,image=im)
+i.pack()
+
+label = ctk.CTkLabel(master=i, text="Cliquez sur le bouton pour écouter une commande", font=("Helvetica", 20))
+label.place(x=350,y=30)
+#ajouter l'mage de jannet
+image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "python jannet.png")
+image= ctk.CTkImage(light_image=Image.open(image_path),size=(200,100))
+image_label = ctk.CTkLabel(master=i,image= image,text='')
+image_label.place(x=0,y=410)
+#crée une partie pour faire apparaite le text liser par jannet
+output_textbox = ctk.CTkTextbox(master=i, height=250, width=800, font=("Arial", 25), wrap="word",border_width=5, border_color="pale Turquoise",text_color="moccasin")
+output_textbox.place(x=150,y=200)
+# Bouton pour écouter une commande
+ecoute_bouton = ctk.CTkButton(
+    master=i, text="Ready to hear", command=execute_command, font=("Helvetica", 15), height=70, width=250, fg_color="olive"
+)
+ecoute_bouton.place(x=450,y=90)
+
+# Bouton pour quitter l'application
+exit_bouton = ctk.CTkButton(
+    master=i, text="EXIT", command=app.quit, font=("Helvetica", 15), height=70, width=250, fg_color="gray"
+)
+exit_bouton.place(x=750,y=500)
+
+# Lancement de l'application
+app.mainloop()
