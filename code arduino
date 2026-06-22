@@ -1,0 +1,61 @@
+#include <ESP8266WiFi.h>
+
+// Broches
+#define SOIL_SENSOR_PIN A0  // Broche analogique pour le capteur d'humidité
+#define RELAY_PIN D1        // Broche numérique pour le relais
+
+// Configuration WiFi
+const char* ssid = "nour";         // Remplacez par votre SSID
+const char* password = "21280604n"; // Remplacez par votre mot de passe
+WiFiServer server(80);                  // Serveur HTTP sur le port 80
+
+void setup() {
+  Serial.begin(115200);
+
+  // Configuration des broches
+  pinMode(SOIL_SENSOR_PIN, INPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Relais désactivé par défaut
+
+  // Connexion au WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connexion au WiFi...");
+  }
+  Serial.println("Connecté au réseau WiFi !");
+  Serial.print("Adresse IP : ");
+  Serial.println(WiFi.localIP());
+
+  server.begin();  // Démarre le serveur
+}
+
+void loop() {
+  WiFiClient client = server.available();  // Vérifie s'il y a un client
+  if (client) {
+    String request = client.readStringUntil('\n');  // Lis la requête
+    request.trim();
+
+    if (request == "READ_SOIL_HUMIDITY") {
+      int soilValue = analogRead(SOIL_SENSOR_PIN);  // Lecture du capteur
+      int humidity = map(soilValue, 1023, 0, 0, 100); // Conversion en %
+      client.println(humidity);  // Envoi de l'humidité à Python
+      Serial.println("Humidité du sol : " + String(humidity) + "%");
+    } 
+    else if (request == "PUMP_ON") {
+      digitalWrite(RELAY_PIN, HIGH);  // Active le relais
+      client.println("PUMP_ACTIVATED");
+      Serial.println("Pompe activée.");
+    } 
+    else if (request == "PUMP_OFF") {
+      digitalWrite(RELAY_PIN, LOW);  // Désactive le relais
+      client.println("PUMP_DEACTIVATED");
+      Serial.println("Pompe désactivée.");
+    } 
+    else {
+      client.println("UNKNOWN_COMMAND");
+      Serial.println("Commande inconnue : " + request);
+    }
+    client.stop();
+  }
+}
